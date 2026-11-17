@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>辉光管时钟 · 交互原型</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px; color: #f1e6d4; user-select: none;
+  }
+
+  /* ---------- 假桌面（仅原型：正式插件里窗口是透明的，这层不存在） ---------- */
+  #desk { position: fixed; inset: 0; transition: background .4s; }
+  #desk[data-wall="dark"]  { background: radial-gradient(120% 90% at 30% 20%, #26364a 0%, #131a24 55%, #0a0d12 100%); }
+  #desk[data-wall="light"] { background: linear-gradient(160deg, #f3efe7 0%, #dcd6ca 100%); }
+  #desk[data-wall="color"] { background: linear-gradient(135deg, #3b6fd8 0%, #8a5bd6 45%, #e2708f 100%); }
+  .fakewin {
+    position: absolute; left: 9%; top: 18%; width: 46%; height: 56%;
+    border-radius: 10px; background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.10); box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  }
+  .fakewin::before {
+    content: ""; position: absolute; left: 14px; top: 12px; width: 10px; height: 10px; border-radius: 50%;
+    background: #ff5f57; box-shadow: 16px 0 0 #febc2e, 32px 0 0 #28c840; opacity: .8;
+  }
+  #desk[data-wall="light"] .fakewin { background: rgba(255,255,255,.75); border-color: rgba(0,0,0,.08); }
+
+  body.native { background: transparent; }
+  body.native #desk { background: transparent !important; }
+  body.native .fakewin { display: none; }
+  body.native .pop { width: 322px; max-height: none; }
+  body.native #clock { touch-action: none; }
+  #host-error { position: fixed; inset: 12px; height: fit-content; padding: 16px; background: #33251c; color: #ffe6c5; border-radius: 12px; z-index: 99; }
+  /* ---------- 时钟 ---------- */
+  #clock { position: absolute; left: 0; top: 0; z-index: 3; cursor: grab; }
+  #clock.dragging { cursor: grabbing; }
+  /* rig 内全部按「100% 大小的 CSS 像素」定位，整体用 zoom 缩放 */
+  #rig { position: relative; zoom: var(--zoom, 1); }
+  #rig > * { position: absolute; }
+  .plate { left: 0; top: 0; width: 100%; height: 100%; display: block; -webkit-user-drag: none; pointer-events: none; }
+  .shadow { /* 悬浮物在「桌面」上的一点接触阴影 */
+    left: 3%; right: 3%; bottom: -9px; height: 22px; border-radius: 50%; z-index: -1;
+    background: radial-gradient(closest-side, rgba(0,0,0,.42), rgba(0,0,0,0)); filter: blur(3px);
+  }
+
+  /* 辉光打在底座和铜件上的光：渲染器烘出的光照图，按管切成竖条分别开关 */
+  .gband { top: 0; height: 100%; background-repeat: no-repeat; opacity: 0; transition: opacity .22s; pointer-events: none; }
+  .gband.live { opacity: var(--bright, 1); }
+
+  .tube { pointer-events: none; }
+  .tube > * { position: absolute; }
+  .tube .front { left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  .tube svg { left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+  .amb, .spill, .edge, .mica { opacity: 0; transition: opacity .22s; }
+  .tube.live .amb, .tube.live .edge, .tube.live .mica { opacity: var(--bright, 1); }
+  .tube.live .spill { opacity: calc(var(--bright, 1) * .9); }
+  .amb {  /* 阴极罩内被辉光照亮的后板 */
+    border-radius: 1px;
+    background: radial-gradient(ellipse 80% 62% at 50% 50%, rgba(255,98,24,.56), rgba(216,62,10,.36) 58%, rgba(150,36,4,.24) 100%);
+  }
+  .spill { background: radial-gradient(closest-side, rgba(255,84,18,.34), rgba(255,70,10,.11) 62%, rgba(255,60,0,0)); mix-blend-mode: screen; }
+  .edge {  /* 圆柱玻璃两侧内壁上的橙色反光 */
+    background: linear-gradient(180deg, rgba(255,120,40,0), rgba(255,122,40,.55) 28%, rgba(255,150,70,.7) 50%, rgba(255,122,40,.55) 72%, rgba(255,120,40,0));
+    filter: blur(.5px); mix-blend-mode: screen; border-radius: 50%;
+  }
+  .mica { background: rgba(255,128,48,.5); border-radius: 50%; mix-blend-mode: screen; }
+
+  /* 点亮的数字：每管 10 组，按 .on 交叉淡入淡出（辉光余辉） */
+  .lit { opacity: 0; transition: opacity .2s ease-out; }
+  .lit.on { opacity: var(--bright, 1); transition: opacity .07s ease-in; animation: flicker 6.1s infinite steps(1); }
+  @keyframes flicker { 0%,100% { filter: brightness(1); } 23% { filter: brightness(.96); } 24% { filter: brightness(1.02); } 61% { filter: brightness(.975); } 63% { filter: brightness(1); } }
+
+  .bulb { pointer-events: none; }
+  .bulb i { position: absolute; opacity: 0; transition: opacity .16s; border-radius: 50%; }
+  .bulb.on i { opacity: var(--bright, 1); }
+  .bulb .halo { background: radial-gradient(closest-side, rgba(255,110,30,.55), rgba(255,80,10,.16) 55%, rgba(255,60,0,0)); mix-blend-mode: screen; }
+  .bulb .rod { background: linear-gradient(180deg, #ff8a30, #ffe2bc 30%, #ffe2bc 70%, #ff8a30); box-shadow: 0 0 1.6px .5px rgba(255,110,30,.95); border-radius: 1px; }
+
+  /* 旋钮本体是渲染出来的，这里只是透明热区 + 悬停光圈 */
+  .knob { border: 0; padding: 0; background: none; border-radius: 50%; cursor: pointer; transition: box-shadow .15s, background .1s; }
+  .knob:hover { box-shadow: 0 0 5px 1.5px rgba(255,176,84,.85); }
+  .knob:active { background: rgba(20,8,0,.28); }
+  .knob.active { box-shadow: 0 0 6px 2px rgba(255,140,40,.95); }
+  .knob::after {
+    content: attr(data-tip); position: absolute; left: 50%; top: 130%; transform: translateX(-50%); zoom: calc(1 / var(--zoom, 1));
+    white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 5px;
+    background: rgba(20,12,6,.92); color: #f3dfc0; opacity: 0; pointer-events: none; transition: opacity .12s;
+  }
+  .knob:hover::after { opacity: 1; }
+
+  /* 右下角缩放手柄 */
+  .grip { right: -2px; bottom: -2px; width: 18px; height: 18px; cursor: nwse-resize; opacity: 0; transition: opacity .15s; zoom: calc(1 / var(--zoom, 1)); }
+  .grip::before {
+    content: ""; position: absolute; right: 3px; bottom: 3px; width: 10px; height: 10px;
+    background: linear-gradient(135deg, transparent 0 45%, rgba(255,255,255,.75) 45% 55%, transparent 55% 70%, rgba(255,255,255,.75) 70% 80%, transparent 80%);
+    filter: drop-shadow(0 0 1px rgba(0,0,0,.8));
+  }
+  #clock:hover .grip, #clock.resizing .grip { opacity: 1; }
+  .sizetag {
+    left: 50%; top: 40%; transform: translate(-50%, -50%); zoom: calc(1 / var(--zoom, 1));
+    padding: 3px 10px; border-radius: 999px; background: rgba(15,10,6,.82); color: #ffd9a8; font-size: 12px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; z-index: 6;
+  }
+  #clock.resizing .sizetag { opacity: 1; }
+
+  /* ---------- 弹出面板（提醒 / 设置） ---------- */
+  .pop {
+    position: fixed;
+    width: min(322px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; padding: 14px 14px 12px; border-radius: 12px; cursor: default;
+    background: linear-gradient(180deg, #2a2019 0%, #1a130e 100%);
+    border: 1px solid rgba(214,170,90,.45);
+    box-shadow: 0 14px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,220,160,.12); z-index: 5;
+  }
+  .pop[hidden] { display: none; }
+  .pop h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: #ffb766; letter-spacing: .5px; display: flex; justify-content: space-between; align-items: center; }
+  .pop h3 button { all: unset; cursor: pointer; color: #a08a70; font-size: 16px; line-height: 1; padding: 0 2px; }
+  .pop h3 button:hover { color: #f1e6d4; }
+  .row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 0; border-top: 1px solid rgba(255,220,170,.08); }
+  .row:first-of-type { border-top: 0; }
+  .row .grow { flex: 1; min-width: 0; }
+  .row small, .note { display: block; color: #9c8a74; font-size: 11px; margin-top: 1px; }
+  .row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note { margin: -4px 0 8px; line-height: 1.45; }
+  .sw { position: relative; width: 34px; height: 20px; border-radius: 10px; background: #46392d; cursor: pointer; flex: none; border: 0; padding: 0; transition: background .15s; }
+  .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #cdbfae; transition: transform .15s, background .15s; }
+  .sw.on { background: #c8641a; box-shadow: 0 0 8px rgba(255,130,40,.55); }
+  .sw.on::after { transform: translateX(14px); background: #fff2dc; }
+  .pop select, .pop input[type=time], .pop input[type=text] {
+    background: #120d09; color: #f1e6d4; border: 1px solid rgba(214,170,90,.3); border-radius: 6px;
+    height: 26px; padding: 0 6px; font: inherit; font-size: 12px; outline: none; color-scheme: dark;
+  }
+  .pop input:focus, .pop select:focus { border-color: #ff9a3d; }
+  .pop input[type=range] { width: 118px; accent-color: #ff8a2a; }
+  .val { width: 40px; text-align: right; font-variant-numeric: tabular-nums; color: #ffd9a8; font-size: 12px; }
+  .btn { all: unset; cursor: pointer; padding: 4px 10px; border-radius: 6px; font-size: 12px; color: #f3dfc0; background: #3a2d21; border: 1px solid rgba(214,170,90,.3); }
+  .btn:hover { background: #4a3828; }
+  .btn.primary { background: #c8641a; border-color: #e58a3a; color: #fff6e8; }
+  .btn.primary:hover { background: #dc7424; }
+  .seg { display: inline-flex; border: 1px solid rgba(214,170,90,.3); border-radius: 6px; overflow: hidden; }
+  .seg button { all: unset; cursor: pointer; padding: 3px 10px; font-size: 12px; color: #b9a78f; }
+  .seg button.on { background: #c8641a; color: #fff6e8; }
+  .del { all: unset; cursor: pointer; color: #8d7b66; padding: 0 4px; font-size: 14px; }
+  .del:hover { color: #ff7a5a; }
+  .addrow { display: flex; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(255,220,170,.08); }
+  .addrow input[type=text] { flex: 1; min-width: 0; }
+  .addrow input[type=time] { width: 94px; min-width: 0; }
+  button:focus-visible, .grip:focus-visible { outline: 2px solid #ffb766; outline-offset: 3px; }
+  .sect { margin: 10px 0 2px; font-size: 11px; color: #9c8a74; letter-spacing: 1px; }
+
+  /* ---------- 桌宠（原型里用静态立绘代替真实桌宠） ---------- */
+  #pet { position: absolute; right: 6%; bottom: 6%; width: 130px; }
+  #pet img { width: 130px; display: block; filter: drop-shadow(0 10px 8px rgba(0,0,0,.35)); -webkit-user-drag: none; }
+  #pet.hop img { animation: hop .9s ease; }
+  @keyframes hop { 0%,100% { transform: translateY(0) } 20% { transform: translateY(-22px) rotate(-4deg) } 45% { transform: translateY(0) } 62% { transform: translateY(-10px) rotate(3deg) } 80% { transform: translateY(0) } }
+  #bubble {
+    position: absolute; right: 56px; bottom: 132px; padding: 9px 13px; border-radius: 14px 14px 4px 14px;
+    background: #fff; color: #2b2520; font-size: 13px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25);
+    opacity: 0; transform: translateY(6px) scale(.96); transform-origin: 100% 100%; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap;
+  }
+  #bubble.show { opacity: 1; transform: none; }
+
+  /* ---------- 原型演示条（正式插件里没有） ---------- */
+  #demo {
+    position: absolute; left: 12px; right: 12px; top: 12px; padding: 9px 12px; border-radius: 12px; z-index: 2;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    background: rgba(18,22,30,.82); backdrop-filter: blur(10px); border: 1px dashed rgba(255,255,255,.28); color: #dfe5ee;
+  }
+  #demo b { font-size: 12px; }
+  #demo p { margin: 0; font-size: 11px; color: #97a3b4; flex-basis: 100%; }
+  #demo .g { display: flex; flex-wrap: wrap; gap: 6px; }
+  #demo button { all: unset; cursor: pointer; text-align: center; padding: 4px 9px; border-radius: 6px; font-size: 11.5px; background: rgba(255,255,255,.10); }
+  #demo button:hover { background: rgba(255,255,255,.2); }
+  #demo .lbl { font-size: 11px; color: #97a3b4; margin-left: 6px; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <filter id="halo" filterUnits="userSpaceOnUse" x="-40" y="-40" width="140" height="260"><feGaussianBlur stdDeviation="3.3"/></filter>
+    <filter id="sheath" filterUnits="userSpaceOnUse" x="-40" y="-40" width="140" height="260"><feGaussianBlur stdDeviation="0.75"/></filter>
+  </defs>
+</svg>
+
+<div id="desk" data-wall="dark">
+  <div class="fakewin"></div>
+
+  <div id="clock">
+    <div class="pop" id="pop-remind" hidden></div>
+    <div class="pop" id="pop-set" hidden></div>
+    <div id="rig"></div>
+  </div>
+
+  <div id="pet"><div id="bubble"></div><img src="pet.png" alt="桌宠" /></div>
+
+  <div id="demo">
+    <b>原型演示条</b>
+    <div class="g">
+      <button data-demo="hourly">整点报时</button>
+      <button data-demo="water">喝水提醒</button>
+      <button data-demo="sit">久坐提醒</button>
+      <button data-demo="custom">自定义提醒</button>
+      <button data-demo="countdown">10 秒倒计时</button>
+      <button data-demo="roll">数字滚动</button>
+    </div>
+    <div class="lbl">桌面背景</div>
+    <div class="g">
+      <button data-wall="dark">深色</button><button data-wall="light">浅色</button><button data-wall="color">彩色</button>
+    </div>
+    <p>这一条只在原型里有，用来不等时间直接触发联动。时钟可拖动；拖右下角或在时钟上双指捏合可缩放；底座三颗铜钮从左到右：时间/日期、提醒、设置。</p>
+  </div>
+</div>
+
+<script src="assets/layout.js"></script>
+<script>
+(async () => {
+const H = window.NixieHost;
+await H?.ready;
+const L = window.NIXIE_LAYOUT;
+
+// ============ 数字笔画（60×100 坐标系；与渲染器里未点亮的阴极丝是同一套路径） ============
+const D = [
+  'M30 6 C15 6 8 26 8 50 C8 74 15 94 30 94 C45 94 52 74 52 50 C52 26 45 6 30 6 Z',
+  'M20 22 L34 6 L34 94',
+  'M9 28 C9 14 18 6 30 6 C42 6 51 14 51 27 C51 40 42 49 31 60 L8 94 L52 94',
+  'M10 7 L50 7 L29 41 C43 41 52 52 52 66 C52 82 42 94 29 94 C19 94 12 88 8 80',
+  'M41 94 L41 6 L7 68 L54 68',
+  'M49 7 L17 7 L12 45 C18 40 24 37 31 37 C44 37 52 49 52 65 C52 82 42 94 29 94 C19 94 12 88 8 80',
+  'M45 6 C28 18 9 42 9 66 C9 82 18 94 30 94 C42 94 51 83 51 68 C51 54 43 44 31 44 C20 44 12 52 9 64',
+  'M8 7 L52 7 L25 94',
+  'M30 46 C20 46 13 37 13 26 C13 14 20 6 30 6 C40 6 47 14 47 26 C47 37 40 46 30 46 C18 46 9 56 9 70 C9 84 18 94 30 94 C42 94 51 84 51 70 C51 56 42 46 30 46 Z',
+  null // 9 = 6 旋转 180°
+];
+// 把笔画坐标换算到「单支管贴图内的 CSS 像素」，这样描边粗细不受非等比缩放影响
+const T = L.tube, DG = L.digit, R = L.R;
+const depthOf = d => L.stack.indexOf(d);                    // 0 = 最靠前的阴极
+function digitPath(d) {
+  const rot = d === 9, src = rot ? D[6] : D[d], off = (depthOf(d) - 4.5) * 0.010 * R;
+  return src.replace(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g, (m, x, y) => {
+    x = +x; y = +y; if (rot) { x = 60 - x; y = 100 - y; }
+    return (T.ax + DG.cx + (x - 30) * DG.sx + off).toFixed(2) + ' ' + (T.ay - DG.cy + (y - 50) * DG.sy).toFixed(2);
+  });
+}
+const PATHS = D.map((_, d) => digitPath(d));
+const stroke = (d, attrs) => `<path d="${PATHS[d]}" fill="none" stroke-linecap="round" stroke-linejoin="round" ${attrs}/>`;
+
+function tubeHTML(t) {
+  const c = L.cage, cw = c.x1 - c.x0, ch = c.y1 - c.y0, cx0 = T.ax + c.x0, cy0 = T.ay - c.y1;
+  let lit = '';
+  for (let d = 0; d < 10; d++) {
+    // 叠在它前面的阴极丝会在辉光上留下细黑线
+    const front = L.stack.slice(0, depthOf(d)).map(f => stroke(f, 'stroke="#140803" stroke-opacity=".2" stroke-width=".5"')).join('');
+    lit += `<g class="lit" data-d="${d}">
+      ${stroke(d, 'stroke="#ff3a00" stroke-width="9" stroke-opacity=".78" filter="url(#halo)"')}
+      ${stroke(d, 'stroke="#ff5a10" stroke-width="4.4" filter="url(#sheath)"')}
+      ${stroke(d, 'stroke="#ffa24e" stroke-width="2.4"')}
+      ${stroke(d, 'stroke="#fff1dc" stroke-width="1.15"')}
+      ${front}</g>`;
+  }
+  const micaY = [c.y1 + 0.26 * R, c.y0 - 0.055 * R];
+  return `<div class="tube" style="left:${t.x}px;top:${t.y}px;width:${T.w}px;height:${T.h}px">
+    <div class="spill" style="left:${T.ax - 1.35 * R}px;top:${cy0 - 1.1 * R}px;width:${2.7 * R}px;height:${ch + 2.2 * R}px"></div>
+    <div class="amb" style="left:${cx0}px;top:${cy0}px;width:${cw}px;height:${ch}px"></div>
+    ${micaY.map(y => `<div class="mica" style="left:${T.ax - 0.8 * R}px;top:${T.ay - y - 0.09 * R}px;width:${1.6 * R}px;height:${0.18 * R}px"></div>`).join('')}
+    <svg viewBox="0 0 ${T.w} ${T.h}">${lit}</svg>
+    <img class="front" src="assets/tube-front.png" draggable="false">
+    <div class="edge" style="left:${T.ax - 0.93 * R}px;top:${cy0 + ch * 0.12}px;width:${0.1 * R}px;height:${ch * 0.76}px"></div>
+    <div class="edge" style="left:${T.ax + 0.83 * R}px;top:${cy0 + ch * 0.12}px;width:${0.1 * R}px;height:${ch * 0.76}px"></div>
+  </div>`;
+}
+function bulbHTML(b) {
+  const B = L.bulb, gy = B.ay - 0.36 * R;
+  return `<div class="bulb" style="left:${b.x}px;top:${b.y}px;width:${B.w}px;height:${B.h}px">
+    <i class="halo" style="left:${B.ax - 0.75 * R}px;top:${gy - 0.75 * R}px;width:${1.5 * R}px;height:${1.5 * R}px"></i>
+    <i class="rod" style="left:${B.ax - 0.075 * R}px;top:${gy - 0.2 * R}px;width:${0.045 * R}px;height:${0.4 * R}px"></i>
+    <i class="rod" style="left:${B.ax + 0.03 * R}px;top:${gy - 0.2 * R}px;width:${0.045 * R}px;height:${0.4 * R}px"></i>
+  </div>`;
+}
+
+// ============ 时区 ============
+const ZONES = [
+  ['system', '跟随系统'], ['Asia/Shanghai', '北京'], ['Asia/Tokyo', '东京'], ['Asia/Seoul', '首尔'], ['Asia/Singapore', '新加坡'],
+  ['Asia/Kolkata', '新德里'], ['Asia/Dubai', '迪拜'], ['Europe/Moscow', '莫斯科'], ['Europe/Berlin', '柏林'], ['Europe/Paris', '巴黎'],
+  ['Europe/London', '伦敦'], ['America/Sao_Paulo', '圣保罗'], ['America/New_York', '纽约'], ['America/Chicago', '芝加哥'],
+  ['America/Denver', '丹佛'], ['America/Los_Angeles', '洛杉矶'], ['Pacific/Honolulu', '檀香山'], ['Australia/Sydney', '悉尼'],
+  ['Pacific/Auckland', '奥克兰'], ['UTC', 'UTC']
+];
+const fmtCache = {};
+function zoneParts(date, tz) {
+  if (tz === 'system') return { y: date.getFullYear(), mo: date.getMonth() + 1, d: date.getDate(), h: date.getHours(), mi: date.getMinutes(), s: date.getSeconds() };
+  const f = fmtCache[tz] || (fmtCache[tz] = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }));
+  const o = {};
+  for (const p of f.formatToParts(date)) o[p.type] = +p.value;
+  return { y: o.year, mo: o.month, d: o.day, h: o.hour, mi: o.minute, s: o.second };
+}
+function offsetMin(tz, date = new Date()) {
+  if (tz === 'system') return -date.getTimezoneOffset();
+  const p = zoneParts(date, tz);
+  return Math.round((Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - Math.floor(date.getTime() / 1000) * 1000) / 60000);
+}
+function utcLabel(tz) {
+  const m = offsetMin(tz), a = Math.abs(m), h = Math.floor(a / 60), mm = a % 60;
+  return 'UTC' + (m < 0 ? '−' : '+') + h + (mm ? ':' + String(mm).padStart(2, '0') : '');
+}
+const zoneName = tz => tz === 'system' ? '本地' : (ZONES.find(z => z[0] === tz) || [tz, tz])[1];
+const isForeign = tz => tz !== 'system' && offsetMin(tz) !== offsetMin('system');
+
+// ============ 状态 ============
+const KEY = 'nixie-proto-v2';
+const SCALE_MIN = 0.4, SCALE_MAX = 3;
+const defaults = {
+  pos: null,
+  runtime: { countdownEnd: 0, water: Date.now(), sit: Date.now() },
+  set: { tz: 'Asia/Shanghai', h24: true, seconds: false, bright: 1, scale: 1, blink: true, antiPoison: true, petLink: true },
+  remind: {
+    hourly: true,
+    water: { on: false, every: 45 },
+    sit: { on: false, every: 60 },
+    customs: [{ id: 1, time: '18:30', text: '该下班啦，收拾收拾', on: true }]
+  }
+};
+let S = structuredClone(defaults);
+try {
+  const raw = H ? H.initial : JSON.parse(localStorage.getItem(KEY));
+  if (raw) S = { ...S, ...raw, set: { ...S.set, ...raw.set }, remind: { ...S.remind, ...raw.remind }, runtime: { ...S.runtime, ...raw.runtime } };
+} catch {}
+if (!ZONES.some(([id]) => id === S.set.tz)) S.set.tz = defaults.set.tz;
+for (const field of ['scale', 'bright']) if (!Number.isFinite(S.set[field])) S.set[field] = defaults.set[field];
+S.set.scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, S.set.scale));
+S.set.bright = Math.max(0.35, Math.min(1, S.set.bright));
+if (!S.pos || !Number.isFinite(S.pos.x) || !Number.isFinite(S.pos.y)) S.pos = null;
+for (const kind of ['water', 'sit']) {
+  S.remind[kind] = { ...defaults.remind[kind], ...S.remind[kind] };
+  if (!Number.isFinite(S.remind[kind].every) || S.remind[kind].every < 1) S.remind[kind].every = defaults.remind[kind].every;
+  if (!Number.isFinite(S.runtime[kind])) S.runtime[kind] = Date.now();
+}
+if (!Array.isArray(S.remind.customs)) S.remind.customs = [];
+S.remind.customs = S.remind.customs.filter(c => c && /^([01]\d|2[0-3]):[0-5]\d$/.test(c.time)).map(c => ({ ...c, text: String(c.text || '').slice(0, 24) }));
+if (!Number.isFinite(S.runtime.countdownEnd)) S.runtime.countdownEnd = 0;
+const save = () => { if (H) return H.save(S); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
+
+const $ = (s, r = document) => r.querySelector(s);
+const clock = $('#clock'), rig = $('#rig'), pet = $('#pet'), bubble = $('#bubble');
+let tubes = [], bulbs = [], lay = null;
+let mode = 'time', modeUntil = 0;
+let rolling = false;
+let reminderDraft = { time: '15:00', text: '' };
+const lastFire = S.runtime;
+let lastMinuteKey = '';
+let lastLabelMinute = '';
+const now = () => zoneParts(new Date(), S.set.tz);
+
+// ============ 渲染 ============
+function buildRig() {
+  const n = S.set.seconds ? 6 : 4;
+  lay = L.layouts[n];
+  rig.style.width = lay.w + 'px';
+  rig.style.height = lay.h + 'px';
+  const axes = lay.tubes.map(t => t.x + T.ax);
+  const cuts = [0, ...axes.slice(1).map((x, i) => (x + axes[i]) / 2), lay.w];
+  const bands = axes.map((_, i) => `<div class="gband" style="left:${cuts[i]}px;width:${cuts[i + 1] - cuts[i]}px;background-image:url(assets/glow${n}.png);background-size:${lay.w}px ${lay.h}px;background-position:${-cuts[i]}px 0"></div>`).join('');
+  const tips = ['时间 / 日期', '提醒', '设置'], ids = ['k-mode', 'k-remind', 'k-set'];
+  const knobs = lay.knobs.map((k, i) => `<button class="knob" id="${ids[i]}" aria-label="${tips[i]}" data-tip="${tips[i]}" style="left:${k.x - k.r}px;top:${k.y - k.r}px;width:${k.r * 2}px;height:${k.r * 2}px"></button>`).join('');
+  rig.innerHTML = `<div class="shadow"></div>
+    <img class="plate" src="assets/plate${n}.png" draggable="false">
+    ${bands}
+    ${lay.tubes.map(tubeHTML).join('')}
+    ${lay.bulbs.map(bulbHTML).join('')}
+    ${knobs}
+    <div class="grip" id="grip" title="拖动缩放" aria-label="缩放时钟" role="slider" tabindex="0"></div>
+    <div class="sizetag" id="sizetag"></div>`;
+  const bandEls = [...rig.querySelectorAll('.gband')];
+  tubes = [...rig.querySelectorAll('.tube')].map((el, i) => ({ el, band: bandEls[i], lits: [...el.querySelectorAll('.lit')], cur: undefined }));
+  bulbs = [...rig.querySelectorAll('.bulb')];
+  $('#k-mode').onclick = () => {
+    if (mode === 'time') { mode = 'date'; modeUntil = Date.now() + 5000; } else mode = 'time';
+    tick();
+  };
+  $('#k-remind').onclick = () => togglePop('remind');
+  $('#k-set').onclick = () => togglePop('set');
+  applyLook();
+  syncKnobs();
+}
+function syncKnobs() {
+  $('#k-mode').classList.toggle('active', mode === 'date');
+  $('#k-remind').classList.toggle('active', !popRemind.hidden);
+  $('#k-set').classList.toggle('active', !popSet.hidden);
+}
+function applyLook() {
+  rig.style.setProperty('--zoom', S.set.scale);
+  rig.style.setProperty('--bright', S.set.bright);
+  $('#sizetag').textContent = Math.round(S.set.scale * 100) + '%';
+  $('#grip').setAttribute('aria-valuenow', Math.round(S.set.scale * 100));
+  $('#grip').setAttribute('aria-valuetext', Math.round(S.set.scale * 100) + '%');
+}
+function setDigit(t, d) {           // d: 0-9 或 null（熄灭）
+  if (t.cur === d) return;
+  t.cur = d;
+  t.lits.forEach((g, i) => g.classList.toggle('on', i === d));
+  t.el.classList.toggle('live', d !== null);
+  t.band.classList.toggle('live', d !== null);
+}
+function show(str) {
+  tubes.forEach((t, i) => { const c = str[i]; setDigit(t, c === ' ' || c === undefined ? null : +c); });
+}
+const p2 = n => String(n).padStart(2, '0');
+
+function displayString(t) {
+  const six = S.set.seconds;
+  if (S.runtime.countdownEnd) {
+    const left = Math.max(0, Math.ceil((S.runtime.countdownEnd - Date.now()) / 1000));
+    const m = Math.floor(left / 60), s = left % 60;
+    return six ? p2(Math.floor(m / 60)) + p2(m % 60) + p2(s) : p2(m) + p2(s);
+  }
+  if (mode === 'date') return p2(t.mo) + p2(t.d) + (six ? p2(t.y % 100) : '');
+  let hs = p2(t.h);
+  if (!S.set.h24) { const h = t.h % 12 || 12; hs = h < 10 ? ' ' + h : String(h); }
+  return hs + p2(t.mi) + (six ? p2(t.s) : '');
+}
+
+function tick() {
+  const t = now();
+  const labelMinute = S.set.tz + '|' + Math.floor(Date.now() / 60000);
+  if (lastLabelMinute !== labelMinute) { lastLabelMinute = labelMinute; applyLook(); }
+  if (mode === 'date' && Date.now() > modeUntil) mode = 'time';
+  syncKnobs();
+  if (!rolling) show(displayString(t));
+  const blinkOn = !S.set.blink || S.runtime.countdownEnd || mode === 'date' || new Date().getMilliseconds() < 500;
+  bulbs.forEach(b => b.classList.toggle('on', !!blinkOn));
+  if (!H) checkReminders(t);
+}
+
+// 数字滚动（真辉光管的「防阴极中毒」，也用作提醒时的视觉信号）
+let rollPromise = null;
+function roll(ms = 1100) {
+  if (rollPromise) return rollPromise;
+  rollPromise = new Promise(res => {
+    rolling = true;
+    const t0 = Date.now();
+    let k = 0;
+    const iv = setInterval(() => {
+      k++;
+      tubes.forEach((t, i) => setDigit(t, (k + i * 3) % 10));
+      if (Date.now() - t0 > ms) { clearInterval(iv); rolling = false; rollPromise = null; tick(); res(); }
+    }, 55);
+  });
+  return rollPromise;
+}
+
+// ============ 宠物联动 ============
+// 正式实现对应：pet.pet.bubble(text) + pet.pet.playAnim(name)，由 tool 进程里的 scheduler 触发
+let bubbleTimer;
+function petSay(text) {
+  bubble.textContent = text;
+  bubble.classList.add('show');
+  pet.classList.remove('hop'); void pet.offsetWidth; pet.classList.add('hop');
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => bubble.classList.remove('show'), 5200);
+}
+function hourlyLine(h) {
+  // 显示的不是本地时间时，「该吃饭/该睡了」这类话对不上，只报时
+  if (isForeign(S.set.tz)) return `${zoneName(S.set.tz)}时间 ${h} 点整`;
+  if (h >= 6 && h <= 8) return `早上好，${h} 点啦，新的一天开始咯`;
+  if (h >= 9 && h <= 11) return `${h} 点整，喝口水再继续吧`;
+  if (h === 12) return '12 点啦，该吃午饭了！';
+  if (h >= 13 && h <= 17) return `${h} 点整，起来伸个懒腰吧`;
+  if (h === 18) return '18 点了，今天辛苦啦';
+  if (h >= 19 && h <= 22) return `${h} 点整啦`;
+  return `都 ${h} 点了，早点休息吧`;
+}
+let reminderQueue = Promise.resolve();
+function fire(kind, text) {
+  reminderQueue = reminderQueue.then(async () => {
+    if (kind === 'hourly' ? S.set.antiPoison : true) await roll();
+    if (S.set.petLink) {
+      petSay(text);
+      await new Promise(resolve => setTimeout(resolve, 5400));
+    }
+  });
+  return reminderQueue;
+}
+function checkReminders(t) {
+  if (S.runtime.countdownEnd && Date.now() >= S.runtime.countdownEnd) {
+    S.runtime.countdownEnd = 0; save(); fire('countdown', '倒计时结束，时间到！'); updateCountdown();
+  }
+  // 整点与定时提醒都按「时钟上显示的时间」算：看到几点就是几点
+  const key = S.set.tz + '|' + t.y + '-' + t.mo + '-' + t.d + '|' + t.h + ':' + t.mi;
+  if (key !== lastMinuteKey) {
+    const first = !lastMinuteKey.startsWith(S.set.tz + '|');
+    lastMinuteKey = key;
+    if (!first) {
+      if (S.remind.hourly && t.mi === 0) fire('hourly', hourlyLine(t.h));
+      const hm = p2(t.h) + ':' + p2(t.mi);
+      S.remind.customs.forEach(c => { if (c.on && c.time === hm) fire('custom', c.text); });
+    }
+  }
+  const ms = Date.now();
+  if (S.remind.water.on && ms - lastFire.water >= S.remind.water.every * 60000) { lastFire.water = ms; save(); fire('water', '该喝水啦，辉光管都替你渴了'); }
+  if (S.remind.sit.on && ms - lastFire.sit >= S.remind.sit.every * 60000) { lastFire.sit = ms; save(); fire('sit', '坐了好久，起来走两步吧'); }
+}
+
+// ============ 弹出面板 ============
+const popRemind = $('#pop-remind'), popSet = $('#pop-set');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const sw = (on, act) => `<button class="sw ${on ? 'on' : ''}" role="switch" aria-checked="${!!on}" data-act="${act}"></button>`;
+const opts = (list, cur, unit) => list.map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>${v} ${unit}</option>`).join('');
+
+function countdownHTML() {
+  const left = Math.max(0, Math.ceil((S.runtime.countdownEnd - Date.now()) / 1000));
+  return S.runtime.countdownEnd
+    ? `<div class="grow" id="cd-status">进行中，还剩 ${Math.floor(left / 60)} 分 ${left % 60} 秒</div><button class="btn" data-act="cd:0">取消</button>`
+    : `<div class="grow" style="display:flex;gap:6px">${[5, 15, 25, 45].map(m => `<button class="btn" data-act="cd:${m}">${m} 分钟</button>`).join('')}</div>`;
+}
+function updateCountdown() {
+  const row = $('#countdown-row');
+  if (!row) return;
+  if (!S.runtime.countdownEnd || !$('#cd-status')) row.innerHTML = countdownHTML();
+  else {
+    const left = Math.max(0, Math.ceil((S.runtime.countdownEnd - Date.now()) / 1000));
+    $('#cd-status').textContent = `进行中，还剩 ${Math.floor(left / 60)} 分 ${left % 60} 秒`;
+  }
+}
+function labelControls(panel) {
+  panel.querySelectorAll('.row').forEach(row => {
+    const label = row.querySelector('.grow')?.firstChild?.textContent?.trim();
+    if (label) row.querySelectorAll('.sw, select, input').forEach(el => el.setAttribute('aria-label', label));
+  });
+}
+function renderRemind() {
+  const r = S.remind;
+  popRemind.innerHTML = `
+    <h3>提醒 · 由桌宠来叫你<button data-act="close">×</button></h3>
+    ${isForeign(S.set.tz) ? `<div class="note">整点报时和定时提醒按时钟显示的时间（${zoneName(S.set.tz)}，${utcLabel(S.set.tz)}）计算。</div>` : ''}
+    <div class="row"><div class="grow">整点报时<small>每到整点，数字滚动一轮，桌宠说一句</small></div>${sw(r.hourly, 'hourly')}</div>
+    <div class="row"><div class="grow">喝水提醒</div>
+      <select data-act="waterEvery">${opts([30, 45, 60, 90], r.water.every, '分钟')}</select>${sw(r.water.on, 'water')}</div>
+    <div class="row"><div class="grow">久坐提醒</div>
+      <select data-act="sitEvery">${opts([30, 45, 60, 90, 120], r.sit.every, '分钟')}</select>${sw(r.sit.on, 'sit')}</div>
+    <div class="sect">定时提醒</div>
+    ${r.customs.map(c => `<div class="row"><div class="grow">${esc(c.time)}<small>${esc(c.text)}</small></div>
+      ${sw(c.on, 'c-toggle:' + c.id)}<button class="del" data-act="c-del:${c.id}" title="删除">×</button></div>`).join('') || '<div class="row"><small>还没有定时提醒</small></div>'}
+    <div class="addrow"><input type="time" id="c-time" aria-label="提醒时间" value="${esc(reminderDraft.time)}"><input type="text" id="c-text" aria-label="提醒内容" maxlength="24" value="${esc(reminderDraft.text)}" placeholder="提醒内容，如：开周会"><button class="btn primary" data-act="c-add">添加</button></div>
+    <div class="sect">倒计时</div>
+    <div class="row" id="countdown-row">${countdownHTML()}</div>`;
+  labelControls(popRemind);
+}
+function renderSet() {
+  const s = S.set;
+  const seg = (name, items, cur) => `<span class="seg">${items.map(([v, l]) => `<button class="${String(v) === String(cur) ? 'on' : ''}" data-act="${name}:${v}">${l}</button>`).join('')}</span>`;
+  const zoneOpts = ZONES.map(([id, name]) => `<option value="${id}" ${id === s.tz ? 'selected' : ''}>${name}（${utcLabel(id)}）</option>`).join('');
+  popSet.innerHTML = `
+    <h3>设置<button data-act="close">×</button></h3>
+    <div class="row"><div class="grow">时区</div><select data-act="tz" style="max-width:170px">${zoneOpts}</select></div>
+    <div class="row"><div class="grow">大小<small>拖角或捏合缩放，自动适应窗口</small></div><input type="range" min="${Math.min(SCALE_MIN, maxScale())}" max="${maxScale()}" step="0.01" value="${s.scale}" data-act="scale"><span class="val" id="scale-val">${Math.round(s.scale * 100)}%</span></div>
+    <div class="row"><div class="grow">时制</div>${seg('h24', [[true, '24 小时'], [false, '12 小时']], s.h24)}</div>
+    <div class="row"><div class="grow">显示秒<small>开启后为 6 支管</small></div>${sw(s.seconds, 'seconds')}</div>
+    <div class="row"><div class="grow">亮度</div><input type="range" min="0.35" max="1" step="0.05" value="${s.bright}" data-act="bright"><span class="val" id="bright-val">${Math.round(s.bright * 100)}%</span></div>
+    <div class="row"><div class="grow">冒号闪烁</div>${sw(s.blink, 'blink')}</div>
+    <div class="row"><div class="grow">整点数字滚动<small>真辉光管的防阴极中毒动画</small></div>${sw(s.antiPoison, 'antiPoison')}</div>
+    <div class="row"><div class="grow">与桌宠联动<small>关闭后只显示视觉提醒，不让宠物说话</small></div>${sw(s.petLink, 'petLink')}</div>
+    ${H ? '<div class="row"><div class="grow">隐藏时钟<small>后台提醒继续，可从插件管理重新打开</small></div><button class="btn" data-act="hide">隐藏</button></div>' : ''}`;
+  labelControls(popSet);
+}
+function placePop(el) {
+  if (H) { H.changed(); return; }
+  if (el.hidden) return;
+  const cr = rig.getBoundingClientRect(), gap = 12, pad = 8;
+  el.style.maxHeight = Math.max(80, innerHeight - pad * 2) + 'px';
+  const h = el.offsetHeight, w = el.offsetWidth;
+  const above = cr.top - gap - pad, below = innerHeight - cr.bottom - gap - pad;
+  let y = above >= h ? cr.top - gap - h : cr.bottom + gap;
+  if (above < h && below < h) y = (innerHeight - h) / 2;
+  el.style.left = Math.max(pad, Math.min(cr.left + cr.width / 2 - w / 2, innerWidth - w - pad)) + 'px';
+  el.style.top = Math.max(pad, Math.min(y, innerHeight - h - pad)) + 'px';
+}
+function togglePop(which) {
+  const el = which === 'remind' ? popRemind : popSet, other = which === 'remind' ? popSet : popRemind;
+  other.hidden = true;
+  el.hidden = !el.hidden;
+  if (!el.hidden) { (which === 'remind' ? renderRemind : renderSet)(); placePop(el); }
+  syncKnobs(); H?.changed();
+}
+function closePops() { popRemind.hidden = popSet.hidden = true; syncKnobs(); H?.changed(); }
+
+popRemind.addEventListener('click', e => {
+  const act = e.target.closest('[data-act]')?.dataset.act; if (!act || e.target.tagName === 'SELECT') return;
+  const r = S.remind, [name, arg] = act.split(':');
+  if (name === 'close') return closePops();
+  if (name === 'hourly') r.hourly = !r.hourly;
+  if (name === 'water') { r.water.on = !r.water.on; lastFire.water = Date.now(); }
+  if (name === 'sit') { r.sit.on = !r.sit.on; lastFire.sit = Date.now(); }
+  if (name === 'c-toggle') { const c = r.customs.find(c => c.id == arg); c.on = !c.on; }
+  if (name === 'c-del') r.customs = r.customs.filter(c => c.id != arg);
+  if (name === 'c-add') {
+    const time = $('#c-time').value, text = $('#c-text').value.trim();
+    if (!time) return;
+    r.customs.push({ id: Date.now(), time, text: text || '时间到啦', on: true });
+    r.customs.sort((a, b) => a.time.localeCompare(b.time));
+    reminderDraft = { time, text: '' };
+  }
+  if (name === 'cd') S.runtime.countdownEnd = +arg ? Date.now() + arg * 60000 : 0;
+  save(); renderRemind(); tick(); placePop(popRemind);
+});
+popRemind.addEventListener('input', e => {
+  if (e.target.id === 'c-text') reminderDraft.text = e.target.value;
+  if (e.target.id === 'c-time') reminderDraft.time = e.target.value;
+});
+popRemind.addEventListener('change', e => {
+  const act = e.target.dataset.act;
+  if (act === 'waterEvery') S.remind.water.every = +e.target.value;
+  if (act === 'sitEvery') S.remind.sit.every = +e.target.value;
+  save();
+});
+popSet.addEventListener('click', e => {
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  if (!act || ['bright', 'scale', 'tz'].includes(act)) return;
+  const s = S.set, [name, arg] = act.split(':');
+  if (name === 'close') return closePops();
+  if (name === 'hide') return H?.close();
+  if (name === 'h24') s.h24 = arg === 'true';
+  else s[name] = !s[name];
+  save();
+  if (name === 'seconds') buildRig();
+  applyLook(); tick(); clampIntoView(); renderSet(); placePop(popSet);
+});
+popSet.addEventListener('input', e => {
+  const act = e.target.dataset.act;
+  if (act === 'bright') { S.set.bright = +e.target.value; $('#bright-val').textContent = Math.round(S.set.bright * 100) + '%'; applyLook(); save(); }
+  if (act === 'scale') setScale(+e.target.value);
+});
+popSet.addEventListener('change', e => {
+  if (e.target.dataset.act !== 'tz') return;
+  S.set.tz = e.target.value;
+  save(); applyLook(); tick();
+});
+
+// ============ 大小 ============
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function maxScale() {
+  if (H) return Math.floor(H.maxScale(lay) * 100) / 100;
+  return Math.floor(Math.min(SCALE_MAX, (innerWidth - 16) / lay.w, (innerHeight - 24) / lay.h) * 100) / 100;
+}
+function syncScaleControls() {
+  const sv = $('#scale-val'), slider = $('[data-act="scale"]');
+  if (sv) sv.textContent = Math.round(S.set.scale * 100) + '%';
+  if (slider) { slider.max = maxScale(); slider.min = Math.min(SCALE_MIN, maxScale()); slider.value = S.set.scale; }
+}
+function setScale(v) {
+  S.set.scale = Math.round(clamp(v, Math.min(SCALE_MIN, maxScale()), maxScale()) * 100) / 100;
+  applyLook(); clampIntoView(); save();
+  syncScaleControls();
+}
+let sizeTimer;
+function flashSize() { clock.classList.add('resizing'); clearTimeout(sizeTimer); sizeTimer = setTimeout(() => { if (!resize) clock.classList.remove('resizing'); }, 700); }
+
+// ============ 拖动与缩放（正式实现里是移动/缩放整个透明窗口） ============
+const size = () => ({ w: lay.w * S.set.scale, h: lay.h * S.set.scale });
+function place(x, y) { clock.style.left = x + 'px'; clock.style.top = y + 'px'; S.pos = { x, y }; }
+function clampIntoView() {
+  if (H) { H.changed(); syncScaleControls(); return; }
+  S.set.scale = Math.min(S.set.scale, maxScale());
+  applyLook(); syncScaleControls();
+  const { w, h } = size();
+  place(clamp(S.pos.x, 8, Math.max(8, innerWidth - w - 8)), clamp(S.pos.y, 8, Math.max(8, innerHeight - h - 16)));
+  placePop(popRemind); placePop(popSet);
+}
+let drag = null, resize = null;
+clock.addEventListener('mousedown', e => {
+  if (H) return;
+  if (e.button !== 0 || e.target.closest('.pop, .knob')) return;
+  if (e.target.closest('.grip')) {
+    const r = rig.getBoundingClientRect();
+    resize = { s0: S.set.scale, x: r.left, y: r.top, d0: Math.hypot(e.clientX - r.left, e.clientY - r.top) };
+    clock.classList.add('resizing');
+    e.preventDefault();
+    return;
+  }
+  drag = { dx: e.clientX - S.pos.x, dy: e.clientY - S.pos.y };
+  clock.classList.add('dragging');
+});
+addEventListener('mousemove', e => {
+  if (resize) return setScale(resize.s0 * Math.hypot(e.clientX - resize.x, e.clientY - resize.y) / resize.d0);
+  if (!drag) return;
+  place(e.clientX - drag.dx, e.clientY - drag.dy); clampIntoView();
+});
+addEventListener('mouseup', () => {
+  if (resize) { resize = null; clock.classList.remove('resizing'); }
+  if (drag) { drag = null; clock.classList.remove('dragging'); save(); }
+});
+clock.addEventListener('wheel', e => {          // 触控板双指捏合（或 Ctrl/⌘ + 滚轮）
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  setScale(S.set.scale * Math.exp(-e.deltaY * 0.01)); flashSize();
+}, { passive: false });
+addEventListener('mousedown', e => { if (!e.target.closest('#clock')) closePops(); });
+addEventListener('resize', () => { clampIntoView(); if (!H) save(); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePops();
+  if (e.target.id === 'grip' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    e.preventDefault(); setScale(S.set.scale + (['ArrowUp', 'ArrowRight'].includes(e.key) ? 0.05 : -0.05)); flashSize();
+  }
+});
+
+// ============ 演示条 ============
+$('#demo')?.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.wall) return $('#desk').dataset.wall = b.dataset.wall;
+  const k = b.dataset.demo;
+  if (k === 'hourly') fire('hourly', hourlyLine((now().h + 1) % 24));
+  if (k === 'water') fire('water', '该喝水啦，辉光管都替你渴了');
+  if (k === 'sit') fire('sit', '坐了好久，起来走两步吧');
+  if (k === 'custom') { const c = S.remind.customs[0]; fire('custom', c ? c.text : '时间到啦'); }
+  if (k === 'countdown') { S.runtime.countdownEnd = Date.now() + 10000; save(); tick(); updateCountdown(); }
+  if (k === 'roll') roll(1600);
+});
+
+// ============ 启动 ============
+buildRig();
+if (!S.pos) { const { w, h } = size(); S.pos = { x: (innerWidth - w) / 2, y: (innerHeight - h) / 2 + 50 }; }
+place(S.pos.x, S.pos.y); clampIntoView();
+tick();
+setInterval(tick, 100);
+setInterval(() => { if (!popRemind.hidden && S.runtime.countdownEnd) updateCountdown(); }, 1000);
+H?.start({ S, roll, applyLook, setScale, size, lay: () => lay, updateCountdown });
+window.__nixie = { S, fire, roll, show, setScale, zoneParts, offsetMin, tubes: () => tubes };
+})().catch(error => { console.error(error); const box = document.createElement('div'); box.id = 'host-error'; box.textContent = error.message; document.body.append(box); });
+</script>
+</body>
+</html>
