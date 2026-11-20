@@ -47,10 +47,19 @@ async function stop() { if (!child) return; try { await H.stopOwned(child); } fi
     check(await H.waitTargetGone(PORT, '/nixie-clock/panel.html'), 'incompatible ZIP does not open a clock window');
     check((await H.evalIn(settings, 'settings.pluginsRemove("nixie-clock")')).ok, 'disabled plugin remains removable');
     if (liveMarket) {
-      const index = await H.evalIn(settings, 'settings.pluginsRegistryList({refresh:true})');
+      // Public CDNs can briefly return the previous index immediately after merge.
+      // Retry the real refresh; never substitute or patch the registry response.
+      let index;
+      await wait(async () => {
+        index = await H.evalIn(settings, 'settings.pluginsRegistryList({refresh:true})', 40000);
+        if (index.plugins.some(p => p.id === 'nixie-clock')) return true;
+        await H.sleep(10000);
+        return false;
+      }, 'public marketplace propagation', 360000);
       const entry = index.plugins.find(p => p.id === 'nixie-clock');
       check(index.fetched && entry?.minHostVersion === '0.33.0' && entry?.description.includes('不兼容'), 'actual public registry returns the installation floor and incompatibility disclosure');
       await activateButton(settings, '[data-field="plugin-tab-market"]');
+      await activateButton(settings, '[data-action="market-refresh"]');
       await wait(() => H.evalIn(settings, 'document.querySelector("[data-market-id=nixie-clock]")?.textContent.includes("不兼容")'), 'visible market incompatibility description');
       check(true, 'market card visibly discloses incompatibility');
       await activateButton(settings, '[data-market-id="nixie-clock"] [data-action="market-install"]');
