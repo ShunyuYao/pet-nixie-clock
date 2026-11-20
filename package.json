@@ -2,7 +2,7 @@
   "name": "pet-nixie-clock",
   "version": "0.2.0",
   "private": true,
-  "description": "辉光管桌面时钟交互原型，正式桌宠插件待原型验收",
+  "description": "透明桌面辉光管时钟，支持时区、大小调整和后台生活提醒。",
   "scripts": {
     "dev": "node scripts/serve.mjs",
     "test": "npm run test:unit && npm run test:e2e",

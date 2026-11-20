@@ -54,3 +54,9 @@ PET_PLUGIN_HOST_DIR=/path/to/desktop-pet/demo npm run test:native
 - `prototype/assets-src/render.py`：NumPy/Pillow 素材渲染器，木底座实体高度已压低约 25%。
 
 No credentials, host code, or private conversation history belong in the distributable ZIP. Marketplace publication must wait for a verified compatible host release.
+
+## 发布流程
+
+GitHub Actions 在主分支更新、PR 或手动触发时运行单元测试、浏览器测试并构建 ZIP，产物保存在 `nixie-clock-package`。公开 CI 不访问私有宿主仓库；真实宿主安装、窗口生命周期和原生交互仍需单独验收。
+
+发布前核对已发布宿主的实际能力，在 manifest 中填写已验证的 `minHostVersion`，同步本页兼容说明，再推送与插件版本一致的 `v<version>` 标签。标签构建校验版本和最低宿主声明后，直接将同一次 CI 构建的 ZIP 与 SHA-256 发布到 GitHub Release。市场登记使用该 Release 的摘要和权限；CI 构建成功本身不等于已经上架。
