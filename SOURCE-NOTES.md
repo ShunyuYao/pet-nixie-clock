@@ -25,3 +25,7 @@ The maintainer explicitly authorized plugin-first listing with incompatibility d
 维护者随后授权打开本地正式环境、安装时钟，再发布兼容宿主。macOS Apple Silicon 正式宿主 0.33.0 已完成签名、公证、时钟 0.2.0 实际安装包验收及正式更新源摘要校验。此决定取代本任务此前暂不发布宿主的安排；宿主仍只通过受邀测试渠道分发。0.33.0 现在是经过验证的版本门槛；旧宿主继续禁用并提示不兼容。此源码提交只校正简介与兼容说明，不替换 v0.2.0 已发布 ZIP、摘要或权限。
 
 The maintainer subsequently authorized host release after local Production validation. Signed/notarized macOS Apple Silicon host 0.33.0 has passed real plugin installation, background reminders and restart checks, and publication verification. This supersedes the earlier host deferral. Existing v0.2.0 assets remain immutable; source/registry metadata now describes the verified compatibility. Host distribution remains invitation-only.
+
+## Browser regression timing on 2026-11-20
+
+During compatibility metadata verification, the narrow-viewport browser test intermittently measured the old geometry before Chromium delivered the resize event (one failure in three targeted replays). The test now awaits that real event before applying the unchanged clipping assertions. Six targeted replays and all fourteen browser cases passed. Runtime files and published v0.2.0 assets are unchanged.

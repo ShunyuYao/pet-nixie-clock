@@ -47,7 +47,12 @@ test('six tubes and maximum scale fit a narrow viewport', async ({ page }) => {
   await open(page);
   await page.locator('#k-set').click();
   await act(page, 'seconds').click();
+  // Viewport emulation can resolve before the browser delivers its resize event.
+  await page.evaluate(() => {
+    window.__viewportResize = new Promise(resolve => addEventListener('resize', () => resolve(), { once: true }));
+  });
   await page.setViewportSize({ width: 480, height: 700 });
+  await page.evaluate(() => window.__viewportResize);
   await inside(page, '#rig');
   await inside(page, '#pop-set');
 });
