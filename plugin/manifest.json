@@ -2,9 +2,10 @@
   "id": "nixie-clock",
   "name": "辉光管时钟",
   "version": "0.2.0",
-  "description": "透明桌面辉光管时钟，支持时区、大小调整和后台生活提醒。",
+  "description": "透明桌面辉光管时钟，支持时区、大小和后台提醒；当前已发布宿主不兼容，等待兼容版本。",
   "author": "ShunyuYao",
   "apiVersion": 1,
+  "minHostVersion": "0.33.0",
   "kind": ["tool", "panel"],
   "permissions": ["ui", "storage", "scheduler", "pet"],
   "entry": {

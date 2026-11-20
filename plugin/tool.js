@@ -1,6 +1,11 @@
 'use strict';
 const { CONFIG, RUNTIME, defaults, advance } = require('./reminders');
 module.exports.activate = async pet => {
+  if (['getPanelBounds', 'setPanelBounds', 'setPanelHitRegions'].some(name => typeof pet.ui?.[name] !== 'function')) {
+    const message = '辉光管时钟与当前宿主不兼容：缺少桌面窗口支持，请等待兼容版本。';
+    await pet.pet.bubble(message, 7000);
+    throw new Error(message);
+  }
   let active = true, busy = false, current = await pet.storage.get(RUNTIME), pending = Promise.resolve();
   if (!await pet.storage.get(CONFIG)) await pet.storage.set(CONFIG, defaults());
   const tick = () => {
@@ -18,10 +23,6 @@ module.exports.activate = async pet => {
   };
   await tick();
   const timer = await pet.scheduler.every(1000, tick);
-  if (typeof pet.ui.getPanelBounds === 'function' && typeof pet.ui.setPanelHitRegions === 'function') {
-    if (!await pet.ui.getPanelBounds()) await pet.ui.openPanel();
-  } else {
-    await pet.pet.bubble('辉光管时钟需要支持桌面悬浮面板的新版宿主。', 7000);
-  }
+  if (!await pet.ui.getPanelBounds()) await pet.ui.openPanel();
   return { dispose: async () => { active = false; await pet.scheduler.cancel(timer); await pending; } };
 };

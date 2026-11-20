@@ -36,7 +36,7 @@ jobs:
           assert.equal(pkg.version, manifest.version);
           if (process.env.RELEASE_TAG) {
             assert.equal(process.env.RELEASE_TAG, `v${manifest.version}`);
-            assert.match(manifest.minHostVersion || '', /^\d+\.\d+\.\d+$/, 'A verified released minimum host version is required before publishing');
+            assert.match(manifest.minHostVersion || '', /^\d+\.\d+\.\d+$/, 'An explicit host-version installation floor is required before publishing');
           }
           NODE
       - run: npm run build
@@ -72,4 +72,4 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" dist/*.zip dist/*.zip.sha256 \
             --verify-tag --title "辉光管时钟 $RELEASE_TAG" \
-            --notes '透明桌面辉光管时钟。安装前请查看 README 中已验证的最低宿主版本；宿主仍通过受邀测试渠道提供。安装包由本仓库 GitHub Actions 构建，摘要见同名 SHA-256 文件。'
+            --notes '透明桌面辉光管时钟。当前已发布宿主不兼容，兼容宿主尚未发布；0.33.0 是预留安装门槛，并非已发布兼容版本的承诺。插件还会检查所需桌面窗口接口，缺失时明确报不兼容且不启动后台提醒。宿主仍通过受邀测试渠道提供。安装包由本仓库 GitHub Actions 构建，摘要见同名 SHA-256 文件。'

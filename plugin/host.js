@@ -13,7 +13,7 @@
   const queueWrite = (key, value) => { writes = writes.catch(() => {}).then(() => sdk.storage.set(key, value)).catch(error); return writes; };
   const H = window.NixieHost = {
     ready: (async () => {
-      if (!sdk?.ui?.getPanelBounds || !sdk.ui.setPanelHitRegions) throw Error('当前宿主尚不支持桌面时钟，请更新兼容版本。');
+      if (['getPanelBounds', 'setPanelBounds', 'setPanelHitRegions'].some(name => typeof sdk?.ui?.[name] !== 'function')) throw Error('辉光管时钟与当前宿主不兼容：缺少桌面窗口支持，请等待兼容版本。');
       [config, runtime, geometry, anchor] = await Promise.all([sdk.storage.get(CONFIG), sdk.storage.get(RUNTIME), sdk.ui.getPanelBounds(), sdk.storage.get('clock.anchor')]);
       if (!geometry) throw Error('面板未就绪');
       anchor = anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y) ? anchor : { x: geometry.bounds.x + PAD, y: geometry.bounds.y + PAD };

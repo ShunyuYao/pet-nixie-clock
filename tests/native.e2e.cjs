@@ -3,13 +3,15 @@
 // native z-order, Spaces and actual OS passthrough require visible acceptance.
 const assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const HOST = process.env.PET_PLUGIN_HOST_DIR;
+const expectIncompatible = process.argv.includes('--expect-incompatible');
+const liveMarket = process.argv.includes('--market');
 if (!HOST) throw Error('Set PET_PLUGIN_HOST_DIR to the compatible host demo directory');
 const REPO = path.dirname(HOST), H = require(path.join(REPO, 'tests/e2e-helpers'));
 const { createMandatoryLoginFixture } = require(path.join(REPO, 'tests/helpers/mandatory-login-fixture'));
 const { activateButton, activateClosingButton } = require(path.join(REPO, 'tests/e2e/html-card-input'));
 const { port } = require(path.join(REPO, 'server/account/test/helpers/activation-fixture'));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-pet-nixie-')), profile = path.join(root, 'desktop-pet-profile');
-const evidence = path.resolve(__dirname, '../test-results/native'); fs.mkdirSync(evidence, { recursive: true }); fs.mkdirSync(profile);
+const evidence = path.resolve(__dirname, liveMarket ? '../test-results/native-market' : expectIncompatible ? '../test-results/native-incompatible' : '../test-results/native'); fs.mkdirSync(evidence, { recursive: true }); fs.mkdirSync(profile);
 const report = { checks: [], profile, host: HOST }; let child, account, settings, panel, pet, PORT, loggedIn = false;
 const save = (p, v) => fs.writeFileSync(p, JSON.stringify(v, null, 2));
 const check = (value, name) => { assert.ok(value, name); report.checks.push(name); console.log('PASS', name); };
@@ -37,6 +39,33 @@ async function stop() { if (!child) return; try { await H.stopOwned(child); } fi
   const zip = path.resolve(__dirname, '../dist/nixie-clock-0.2.0.zip');
   const sha256 = require('node:crypto').createHash('sha256').update(fs.readFileSync(zip)).digest('hex');
   const install = await H.evalIn(settings, `settings.pluginsInstallZip(${JSON.stringify({path:zip,sha256,expectPermissions:['ui','storage','scheduler','pet']})})`);
+  report.installResult = install;
+  if (expectIncompatible) {
+    const installed = (await H.evalIn(settings, 'settings.pluginsList()')).find(p => p.id === 'nixie-clock');
+    report.incompatiblePlugin = installed;
+    check(install.ok && installed?.status === 'disabled' && /宿主版本.*0\.33\.0/.test(installed.reason), 'older host disables the installed ZIP with an explicit host-version reason');
+    check(await H.waitTargetGone(PORT, '/nixie-clock/panel.html'), 'incompatible ZIP does not open a clock window');
+    check((await H.evalIn(settings, 'settings.pluginsRemove("nixie-clock")')).ok, 'disabled plugin remains removable');
+    if (liveMarket) {
+      const index = await H.evalIn(settings, 'settings.pluginsRegistryList({refresh:true})');
+      const entry = index.plugins.find(p => p.id === 'nixie-clock');
+      check(index.fetched && entry?.minHostVersion === '0.33.0' && entry?.description.includes('不兼容'), 'actual public registry returns the installation floor and incompatibility disclosure');
+      await activateButton(settings, '[data-field="plugin-tab-market"]');
+      await wait(() => H.evalIn(settings, 'document.querySelector("[data-market-id=nixie-clock]")?.textContent.includes("不兼容")'), 'visible market incompatibility description');
+      check(true, 'market card visibly discloses incompatibility');
+      await activateButton(settings, '[data-market-id="nixie-clock"] [data-action="market-install"]');
+      await activateButton(settings, '[data-action="market-perm-confirm"]');
+      await wait(() => H.evalIn(settings, 'settings.pluginsList().then(list=>list.some(p=>p.id==="nixie-clock"&&p.status==="disabled"&&p.reason.includes("宿主版本")))'), 'market installation disabled by version');
+      await activateButton(settings, '[data-field="plugin-tab-installed"]');
+      await wait(() => H.evalIn(settings, 'document.querySelector("[data-plugin-id=nixie-clock]")?.textContent.includes("0.33.0")'), 'visible disabled reason');
+      check(await H.evalIn(settings, 'document.querySelector("[data-plugin-id=nixie-clock] [data-action=open-plugin-panel]").disabled'), 'actual market download remains disabled with a visible version requirement and disabled open button');
+      const { data } = await H.cdp(settings, 'Page.captureScreenshot', { format: 'png' });
+      fs.writeFileSync(path.join(evidence, 'incompatible-market.png'), Buffer.from(data, 'base64'));
+      check((await H.evalIn(settings, 'settings.pluginsRemove("nixie-clock")')).ok, 'market test removes its own disabled installation');
+    }
+    report.ok = true;
+    return;
+  }
   check(install.ok, 'installs ZIP through actual host installer with SHA-256 and permission checks');
   await readyPanel();
   const shape = await H.evalIn(panel, '({tubes:document.querySelectorAll(".tube").length,nameplate:!!document.querySelector("#nameplate"),demo:!!document.querySelector("#demo"),pet:!!document.querySelector("#pet"),bg:getComputedStyle(document.querySelector("#desk")).backgroundColor})');

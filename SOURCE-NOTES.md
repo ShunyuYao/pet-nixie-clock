@@ -1,6 +1,6 @@
 # Development candidate
 
-Version 0.2.0. Marketplace delivery is pending a compatible host release and native acceptance. The distributable ZIP contains only runtime plugin files. Private Claude history, reference photographs, local paths and host code are excluded. Source publication was authorized on 2026-11-20 as part of marketplace delivery.
+Version 0.2.0. The distributable ZIP contains only runtime plugin files. Private Claude history, reference photographs, local paths and host code are excluded. Source publication was authorized on 2026-11-20 as part of marketplace delivery. The final publication order below supersedes the initial wait-for-host plan.
 
 ## Release sequence confirmed on 2026-11-17
 
@@ -13,3 +13,9 @@ Sync this batch of source changes first. Release follows successful local verifi
 用户已授权上架时钟插件。核对时市场尚无此条目、仓库无 Release；正式宿主 0.32.0 与测试宿主 0.30.2-internal.19 的已发布源码均早于桌面面板支持。先补齐插件 CI 构建，兼容宿主实际发版并验证后再填写最低宿主版本和登记市场。插件上架授权不改变宿主仅通过受邀测试渠道分发的边界。
 
 Plugin publication is authorized. Compatible host publication and verification remain prerequisites for the marketplace entry; no guessed minimum host version is declared.
+
+## Final publication order on 2026-11-20
+
+用户随后明确改为：“先上架插件吧。如果版本不对，就说不兼容。”本条取代上面的等待兼容宿主再上架安排；本轮只发布插件，不发布宿主。市场与插件简介明确标注当前已发布宿主不兼容，预留 0.33.0 安装门槛排除现有版本，并在启动时再次检查所需接口。此门槛不是已发布兼容版本的声明；后续宿主实际发版仍需单独验证并更新说明。
+
+The maintainer explicitly authorized plugin-first listing with incompatibility disclosure. Do not release the host in this task. The reserved version floor excludes current releases; API checks fail before reminders or persistence begin. This exception applies to this plugin and does not claim released-host compatibility.

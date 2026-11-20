@@ -8,8 +8,11 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:e2e": "playwright test",
     "build": "node scripts/build.mjs",
-    "test:unit": "node --test tests/reminders.test.cjs",
+    "test:unit": "node --test tests/reminders.test.cjs tests/compatibility.test.cjs",
+    "test:compatibility": "node --test tests/compatibility.test.cjs",
     "test:native": "node tests/native.e2e.cjs",
+    "test:native:incompatible": "node tests/native.e2e.cjs --expect-incompatible",
+    "test:native:market": "node tests/native.e2e.cjs --expect-incompatible --market",
     "test:delivery": "npm test && npm run build && npm run test:native"
   },
   "devDependencies": {
