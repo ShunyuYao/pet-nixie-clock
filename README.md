@@ -1,10 +1,22 @@
 # 辉光管时钟 / Nixie Clock
 
+吐梨邦（Turi Topia）提供可聊天、互动和到朋友桌面串门的 AI 桌宠。
+
+Turi Topia (吐梨邦) brings AI pets to the desktop, with conversation, interaction and visits between friends.
+
+[官网 / Website](https://turitopia.com/) · [脚手架与指南 / Scaffold](https://github.com/ShunyuYao/create-pet-plugin) · [SDK 类型 / API types](https://github.com/ShunyuYao/pet-plugin-types) · [插件市场 / Registry](https://github.com/ShunyuYao/pet-plugin-registry)
+
+这是吐梨邦的时钟插件。This clock plugin runs inside Turi Topia.
+
+市场状态：**已上架，0.2.0**；核实日期 **2026-11-20**。[固定登记记录](https://github.com/ShunyuYao/pet-plugin-registry/blob/dca6b5b3a9511cc7397de2c00d687998a8f16f9b/registry/plugins.json)与[禁用清单](https://github.com/ShunyuYao/pet-plugin-registry/blob/dca6b5b3a9511cc7397de2c00d687998a8f16f9b/registry/blocklist.json)已核对；已在应用内从正式市场安装并运行。
+
+Marketplace: **listed, version 0.2.0**, verified **2026-11-20** against the pinned registry and blocklist above. In-app marketplace installation and operation have been verified.
+
 透明桌面辉光管时钟，默认北京时间，可切换时区、四管／六管、12／24 小时制、亮度与大小。木底座的三颗铜钮依次是时间／日期、提醒、设置。底座不显示时区铭牌。
 
-当前版本 **0.2.0**。按维护者确认采用先上架插件、兼容宿主后续发布的顺序。**当前已发布宿主不兼容**：正式宿主 0.32.0 和测试宿主 0.30.2-internal.19 均缺少所需桌面窗口能力。
+当前插件版本 **0.2.0**，已在经过签名、公证的 **macOS Apple Silicon 正式宿主 0.33.0** 中验证安装、后台提醒和重启恢复。正式宿主 0.32.0 与测试宿主 0.30.2-internal.19 不兼容；其他平台需要对应的兼容宿主构建。
 
-版本门槛预留为 **0.33.0**，用于禁止插件在现有不兼容版本中启动；这不是“0.33.0 已发布或已验证兼容”的承诺。兼容宿主尚未发布，届时仍须完成真实安装验证。插件启动还会核对三个桌面窗口接口，缺失时明确提示不兼容，并停止启动，不写配置或开启后台提醒。`apiVersion: 1` 本身不代表兼容。
+最低宿主版本为 **0.33.0**；本次构建验证针对 macOS Apple Silicon。插件启动还会核对三个桌面窗口接口，缺失时明确提示不兼容，并停止启动，不写配置或开启后台提醒。`apiVersion: 1` 本身不代表兼容。
 
 ## 运行原型
 
@@ -23,7 +35,7 @@ npm run build
 
 输出 `dist/nixie-clock/`、`dist/nixie-clock-0.2.0.zip` 和 SHA-256 文件。通过兼容宿主的插件安装入口导入文件夹或 ZIP。启动插件时自动打开时钟；在设置里选择“隐藏”，后台提醒继续运行，从宿主插件管理或托盘可重新打开。
 
-兼容宿主必须支持 `entry.panel.desktop:true`、`ui.getPanelBounds`、`ui.setPanelBounds` 和 `ui.setPanelHitRegions`。市场简介会显示当前不兼容的说明；现有宿主允许下载后安装，但会禁用插件，在已安装页显示所需版本，时钟和后台提醒均不会启动，仍可卸载。源码支持状态与已发布安装包是两回事；宿主仍仅通过受邀测试渠道提供。
+兼容宿主必须支持 `entry.panel.desktop:true`、`ui.getPanelBounds`、`ui.setPanelBounds` 和 `ui.setPanelHitRegions`。低于版本门槛的宿主可能允许下载后安装，但会禁用插件，在已安装页显示所需版本，时钟和后台提醒均不会启动，仍可卸载。宿主仍仅通过受邀测试渠道提供。
 
 ## 使用
 
@@ -58,10 +70,10 @@ PET_PLUGIN_HOST_DIR=/path/to/older-host/demo npm run test:native:market
 - `scripts/build.mjs`：从共享视图生成正式插件，打包只包含运行所需文件。
 - `prototype/assets-src/render.py`：NumPy/Pillow 素材渲染器，木底座实体高度已压低约 25%。
 
-No credentials, host code, or private conversation history belong in the distributable ZIP. The maintainer authorized listing before a compatible host release on 2026-11-20. Currently released hosts are incompatible. Version 0.33.0 is a reserved installation floor, not a claim that a compatible host has shipped. Required desktop APIs are also checked at activation.
+No credentials, host code, or private conversation history belong in the distributable ZIP. Plugin 0.2.0 is verified against the signed and notarized macOS Apple Silicon host 0.33.0, including installation, background reminders and restart recovery. Older hosts remain incompatible; other platforms require a matching host build. Required desktop APIs are checked at activation. Hosts remain invitation-only; no npm publication is implied.
 
 ## 发布流程
 
 GitHub Actions 在主分支更新、PR 或手动触发时运行单元测试、浏览器测试并构建 ZIP，产物保存在 `nixie-clock-package`。公开 CI 不访问私有宿主仓库；真实宿主安装、窗口生命周期和原生交互仍需单独验收。
 
-发布前核对兼容状态、版本门槛与本页说明，再推送与插件版本一致的 `v<version>` 标签。标签构建校验版本和最低宿主声明后，直接将同一次 CI 构建的 ZIP 与 SHA-256 发布到 GitHub Release。市场登记使用该 Release 的摘要和权限；CI 构建成功本身不等于已经上架。后续兼容宿主发版并通过验证后，再更新兼容说明。
+发布前核对兼容状态、版本门槛与本页说明，再推送与插件版本一致的 `v<version>` 标签。标签构建校验版本和最低宿主声明后，直接将同一次 CI 构建的 ZIP 与 SHA-256 发布到 GitHub Release。市场登记使用该 Release 的摘要和权限；CI 构建成功本身不等于已经上架。兼容说明已依据宿主 0.33.0 的实际构建与发布回执更新；v0.2.0 的既有 ZIP 与摘要保持不变。
